@@ -24,34 +24,9 @@ sudo ./scripts/k3s-project.sh delete
 
 ## Architecture
 
-```
-+----------------------------------------------------------+
-|                    Ubuntu 24.04 VM                        |
-|  +----------------------------------------------------+  |
-|  |                  K3s Cluster                       |  |
-|  |  +-------------+  +-------------+  +------------+  |  |
-|  |  |  Namespace  |  |  Namespace  |  | Namespace  |  |  |
-|  |  |  postgres   |  |    redis    |  |  login-app |  |  |
-|  |  |             |  |             |  |            |  |  |
-|  |  | PostgreSQL  |  |   Redis     |  | Flask App  |  |  |
-|  |  | (Primary)   |  |  Sentinel   |  | (Web UI)   |  |  |
-|  |  | (Replica)   |  |  (Master)   |  |            |  |  |
-|  |  |             |  |  (Replica)  |  |            |  |  |
-|  |  | CronJob     |  |             |  |            |  |  |
-|  |  | (Backup)    |  |             |  |            |  |  |
-|  |  +-------------+  +-------------+  +------------+  |  |
-|  |                                                    |  |
-|  |  +-------------+  +-----------------------------+  |  |
-|  |  |  Namespace  |  |        Traefik Ingress      |  |  |
-|  |  |  secrets    |  |   (Built-in with k3s)       |  |  |
-|  |  |             |  +-----------------------------+  |  |
-|  |  | Sealed      |                                   |  |
-|  |  | Secrets     |  NodePort: 30432 (PostgreSQL)     |  |
-|  |  | Controller  |  NodePort: 30379 (Redis)          |  |
-|  |  +-------------+  NodePort: 30080 (Login App)      |  |
-|  +----------------------------------------------------+  |
-+----------------------------------------------------------+
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="K3s Cluster Architecture Diagram" width="100%"/>
+</p>
 
 ## Components
 
