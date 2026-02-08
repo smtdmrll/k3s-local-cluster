@@ -251,12 +251,39 @@ copy_test_scripts() {
     chmod +x "$PROJECT_DIR/scripts/test-redis.sh"
 }
 
+print_cluster_summary() {
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    
+    echo ""
+    echo "=============================================="
+    echo "      K3s CLUSTER INSTALLATION COMPLETE"
+    echo "=============================================="
+    echo ""
+    echo "Server: $SERVER_IP"
+    echo "Components: K3s, Helm, Sealed Secrets, PostgreSQL, Redis"
+    echo ""
+    echo "Access:"
+    echo "  PostgreSQL: $SERVER_IP:30432"
+    echo "  Redis:      $SERVER_IP:30379"
+    echo ""
+    echo "Credentials:"
+    echo "  PostgreSQL: stored in $PROJECT_DIR/.postgres-password"
+    echo "  Redis:      stored in $PROJECT_DIR/.redis-password"
+    echo ""
+    echo "Useful commands:"
+    echo "  kubectl get pods -A"
+    echo "  kubectl get svc -A"
+    echo "  helm list -A"
+    echo ""
+    echo "=============================================="
+}
+
 print_summary() {
     SERVER_IP=$(hostname -I | awk '{print $1}')
     
     echo ""
     echo "=============================================="
-    echo "        INSTALLATION COMPLETE"
+    echo "    FULL STACK INSTALLATION COMPLETE"
     echo "=============================================="
     echo ""
     echo "Access URLs:"
@@ -291,6 +318,11 @@ install_all() {
     deploy_postgresql
     deploy_postgresql_backup
     deploy_redis
+    print_cluster_summary
+}
+
+install_withapp() {
+    install_all
     deploy_login_app
     copy_test_scripts
     print_summary
@@ -320,12 +352,13 @@ delete_all() {
 }
 
 show_usage() {
-    echo "Usage: $0 {install|delete|status}"
+    echo "Usage: $0 {install|install-withapp|delete|status}"
     echo ""
     echo "Commands:"
-    echo "  install  - Install entire stack (k3s, PostgreSQL, Redis, Login App)"
-    echo "  delete   - Remove entire stack"
-    echo "  status   - Show current status"
+    echo "  install          - Install K3s cluster + components (Helm, Sealed Secrets, PostgreSQL, Redis)"
+    echo "  install-withapp  - Install everything including Login App"
+    echo "  delete           - Remove entire stack"
+    echo "  status           - Show current status"
 }
 
 show_status() {
@@ -345,6 +378,9 @@ show_status() {
 case "${1:-}" in
     install)
         install_all
+        ;;
+    install-withapp)
+        install_withapp
         ;;
     delete)
         delete_all

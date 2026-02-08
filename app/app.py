@@ -281,8 +281,8 @@ def _run_ssh_command(ssh, command, deploy_id):
     return exit_code, output
 
 
-def _deploy_worker(deploy_id, server_ip, ssh_key_content, docker_image, action, user_id):
-    """Background thread: SSH into server and run install/delete."""
+def _deploy_worker(deploy_id, server_ip, ssh_key_content, action, user_id):
+    """Background thread: SSH into server and install/delete K3s."""
     try:
         _update_deployment(deploy_id, status='running')
         _append_log(deploy_id, f"Connecting to {server_ip}...")
@@ -305,15 +305,21 @@ def _deploy_worker(deploy_id, server_ip, ssh_key_content, docker_image, action, 
         _append_log(deploy_id, f"Connected to {server_ip} as devops")
 
         if action == 'install':
-            # Step 1: Clone repo & install cluster
+            # Step 1: Clone repo
             _append_log(deploy_id, "="*50)
-            _append_log(deploy_id, "STEP 1: Setting up K3s cluster...")
+            _append_log(deploy_id, "STEP 1: Cloning project repository...")
             _append_log(deploy_id, "="*50)
 
             code, _ = _run_ssh_command(ssh,
                 'if [ ! -d /home/devops/k3s-local-cluster ]; then '
                 'git clone https://github.com/smtdmrll/k3s-local-cluster.git /home/devops/k3s-local-cluster; '
-                'fi', deploy_id)
+                'else cd /home/devops/k3s-local-cluster && git pull; fi',
+                deploy_id)
+
+            # Step 2: Run k3s-project.sh install (K3s + components, NO login-app)
+            _append_log(deploy_id, "="*50)
+            _append_log(deploy_id, "STEP 2: Installing K3s cluster + components...")
+            _append_log(deploy_id, "="*50)
 
             code, _ = _run_ssh_command(ssh,
                 'sudo bash /home/devops/k3s-local-cluster/scripts/k3s-project.sh install',
@@ -326,38 +332,23 @@ def _deploy_worker(deploy_id, server_ip, ssh_key_content, docker_image, action, 
                 ssh.close()
                 return
 
-            # Step 2: Deploy custom image
             _append_log(deploy_id, "="*50)
-            _append_log(deploy_id, f"STEP 2: Deploying custom image: {docker_image}")
-            _append_log(deploy_id, "="*50)
-
-            image_name = docker_image.split(':')[0].split('/')[-1]
-            deploy_name = image_name.replace('.', '-').replace('_', '-')
-
-            commands = [
-                f'sudo kubectl create namespace custom-apps --dry-run=client -o yaml | sudo kubectl apply -f -',
-                f'sudo kubectl create deployment {deploy_name} --image={docker_image} -n custom-apps --dry-run=client -o yaml | sudo kubectl apply -f -',
-                f'sudo kubectl set image deployment/{deploy_name} {deploy_name}={docker_image} -n custom-apps 2>/dev/null || true',
-                f'sudo kubectl rollout status deployment/{deploy_name} -n custom-apps --timeout=180s',
-                f'sudo kubectl get pods -n custom-apps',
-            ]
-
-            for cmd in commands:
-                code, _ = _run_ssh_command(ssh, cmd, deploy_id)
-
-            _append_log(deploy_id, "="*50)
-            _append_log(deploy_id, "Deployment completed successfully!")
+            _append_log(deploy_id, "K3s cluster is ready! ✅")
             _append_log(deploy_id, "="*50)
             _update_deployment(deploy_id, status='success',
                                finished_at=time.strftime('%Y-%m-%d %H:%M:%S'))
 
         elif action == 'delete':
             _append_log(deploy_id, "="*50)
-            _append_log(deploy_id, "Deleting cluster...")
+            _append_log(deploy_id, "Deleting K3s cluster...")
             _append_log(deploy_id, "="*50)
 
             code, _ = _run_ssh_command(ssh,
-                'sudo bash /home/devops/k3s-local-cluster/scripts/k3s-project.sh delete',
+                'if [ -f /home/devops/k3s-local-cluster/scripts/k3s-project.sh ]; then '
+                'sudo bash /home/devops/k3s-local-cluster/scripts/k3s-project.sh delete; '
+                'elif [ -f /usr/local/bin/k3s-uninstall.sh ]; then '
+                'sudo /usr/local/bin/k3s-uninstall.sh; '
+                'else echo "No uninstall method found"; exit 1; fi',
                 deploy_id)
 
             status = 'success' if code == 0 else 'failed'
@@ -378,7 +369,6 @@ def _deploy_worker(deploy_id, server_ip, ssh_key_content, docker_image, action, 
 def deploy():
     if request.method == 'POST':
         server_ip = request.form.get('server_ip', '').strip()
-        docker_image = request.form.get('docker_image', '').strip()
         ssh_key_text = request.form.get('ssh_key', '').strip()
         action = request.form.get('action', 'install')
 
@@ -386,8 +376,6 @@ def deploy():
         errors = []
         if not server_ip:
             errors.append('Server IP is required')
-        if not docker_image and action == 'install':
-            errors.append('Docker Image is required for install')
         if not ssh_key_text:
             errors.append('SSH Private Key is required')
         if action not in ('install', 'delete'):
@@ -404,7 +392,7 @@ def deploy():
         cur.execute(
             'INSERT INTO deployments (user_id, server_ip, docker_image, action, status) '
             'VALUES (%s, %s, %s, %s, %s) RETURNING id',
-            (session['user_id'], server_ip, docker_image or 'N/A', action, 'pending')
+            (session['user_id'], server_ip, 'K3s Cluster', action, 'pending')
         )
         deploy_id = cur.fetchone()[0]
         conn.commit()
@@ -414,7 +402,7 @@ def deploy():
         # Start background thread
         thread = threading.Thread(
             target=_deploy_worker,
-            args=(deploy_id, server_ip, ssh_key_text, docker_image, action, session['user_id']),
+            args=(deploy_id, server_ip, ssh_key_text, action, session['user_id']),
             daemon=True
         )
         thread.start()
