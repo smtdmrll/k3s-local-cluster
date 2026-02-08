@@ -1,47 +1,31 @@
 # K3s Local Kubernetes Cluster
 
-A complete DevOps project that deploys a lightweight Kubernetes cluster (K3s) on Ubuntu with PostgreSQL, Redis, Sealed Secrets and a full-featured **Login Application** including **Deploy Manager** and **Image Establisher** tools.
+Production-ready K3s cluster with PostgreSQL, Redis, and a full-featured DevOps management application.
+
+## 🎯 Overview
+
+This project provides an automated deployment solution for K3s (lightweight Kubernetes) with enterprise-grade components and a web-based management interface for remote cluster operations.
+
+**Key Features:**
+- 🚀 One-command K3s cluster deployment
+- 🔐 Sealed Secrets integration for GitOps
+- 📊 PostgreSQL database with automated backups
+- ⚡ Redis caching layer
+- 🌐 Web UI for remote cluster management
+- 🛠 SSH-based Deploy Manager for infrastructure automation
+- 📦 Image Establisher for instant application deployment
 
 ---
 
-## 📋 Table of Contents
+## 📋 Prerequisites
 
-- [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-  - [Option 1: Cluster Only (install)](#option-1-cluster-only-install)
-  - [Option 2: Cluster + Application (install-withapp)](#option-2-cluster--application-install-withapp)
-- [Application Features](#-application-features)
-  - [Login & Register](#1-login--register)
-  - [Dashboard](#2-dashboard)
-  - [Deploy Manager](#3-deploy-manager)
-  - [Image Establisher](#4-image-establisher)
-  - [Saved Servers](#5-saved-servers)
-- [Components](#-components)
-- [Scripts](#-scripts)
-- [Backup](#-backup)
-- [Multi-Node Migration](#-multi-node-migration)
-- [Tech Stack](#-tech-stack)
-- [License](#-license)
-
----
-
-## 🏗 Architecture
-
-<p align="center">
-  <img src="docs/architecture.svg" alt="K3s Cluster Architecture Diagram" width="100%"/>
-</p>
-
----
-
-## 📌 Prerequisites
-
-| Requirement | Details |
-|-------------|---------|
-| **OS** | Ubuntu 24.04 LTS (fresh installation) |
-| **Hardware** | Minimum 4 GB RAM, 2 CPU, 40 GB Disk |
-| **Network** | Internet connection required |
-| **Access** | Root or sudo access |
+| Requirement | Specification |
+|-------------|---------------|
+| **OS** | Ubuntu 24.04 LTS |
+| **RAM** | Minimum 4 GB |
+| **CPU** | Minimum 2 cores |
+| **Disk** | 40 GB available |
+| **Access** | Root/sudo privileges |
 
 ---
 
@@ -53,53 +37,41 @@ cd k3s-local-cluster
 chmod +x scripts/k3s-project.sh
 ```
 
-### Option 1: Cluster Only (`install`)
+### Installation Options
 
-Sadece Kubernetes altyapısını kurar. Login App **kurulmaz**.
+#### Option 1: Infrastructure Only
+Deploys K3s cluster with core components (no web application).
 
 ```bash
 sudo ./scripts/k3s-project.sh install
 ```
 
-Bu komut şunları kurar:
-- ✅ K3s (Lightweight Kubernetes)
-- ✅ Helm (Paket Yöneticisi)
-- ✅ Sealed Secrets (Secret Şifreleme)
-- ✅ PostgreSQL (Veritabanı — NodePort 30432)
-- ✅ Redis (Cache — NodePort 30379)
-- ✅ PostgreSQL Backup CronJob (Günlük yedekleme)
+**Includes:** K3s • Helm • Sealed Secrets • PostgreSQL • Redis • Automated Backups
 
-> **Ne zaman kullanılır?** Kendi uygulamanızı deploy etmek istiyorsanız veya sadece K3s altyapısına ihtiyacınız varsa.
-
-### Option 2: Cluster + Application (`install-withapp`)
-
-Altyapıyı **ve** Login App uygulamasını birlikte kurar.
+#### Option 2: Complete Stack
+Deploys infrastructure + web management application.
 
 ```bash
 sudo ./scripts/k3s-project.sh install-withapp
 ```
 
-Bu komut `install` komutundaki her şeyi + ek olarak şunları kurar:
-- ✅ Login App (Web Uygulaması — NodePort 30080)
-- ✅ Test scriptleri (`test-postgres.sh`, `test-redis.sh`)
+**Includes:** Everything from Option 1 + Login App with Deploy Manager & Image Establisher
 
-Kurulum tamamlandığında uygulamaya erişim:
-
-```
-http://<SUNUCU-IP>:30080
-```
+Access the application at: `http://<SERVER-IP>:30080`
 
 <p align="center">
-  <img src="docs/screenshots/login.png" alt="Login Page" width="700"/>
+  <img src="docs/screenshots/login.png" alt="Application Login" width="650"/>
 </p>
 
-### Diğer Komutlar
+---
+
+## 🔧 Management Commands
 
 ```bash
-# Cluster durumunu görüntüle
+# View cluster status
 sudo ./scripts/k3s-project.sh status
 
-# Her şeyi sil (K3s dahil)
+# Complete removal
 sudo ./scripts/k3s-project.sh delete
 ```
 
@@ -107,188 +79,102 @@ sudo ./scripts/k3s-project.sh delete
 
 ## 🖥 Application Features
 
-> Aşağıdaki özellikler sadece `install-withapp` ile kurulum yapıldığında kullanılabilir.
-
-### 1. Login & Register
-
-Kullanıcılar hesap oluşturup giriş yapabilir. Tüm kullanıcı verileri PostgreSQL'de saklanır, oturum bilgileri Redis ile cache'lenir.
-
-<p align="center">
-  <img src="docs/screenshots/login.png" alt="Login Page" width="600"/>
-</p>
-
-- Yeni hesap oluşturmak için **Register** butonuna tıklayın
-- Kullanıcı adı, email ve şifre ile kayıt olun
-- Giriş yaptığınızda Dashboard'a yönlendirilirsiniz
-
-<p align="center">
-  <img src="docs/screenshots/register.png" alt="Register Page" width="600"/>
-</p>
-
----
-
-### 2. Dashboard
-
-Giriş yaptıktan sonra karşınıza çıkan ana sayfa. Kullanıcı bilgileri, giriş sayısı ve son giriş geçmişi gösterilir.
-
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="700"/>
 </p>
 
-- Üst menüden **Deploy Manager** ve **Image Establisher** sayfalarına geçiş yapabilirsiniz
+### Deploy Manager
 
----
-
-### 3. Deploy Manager
-
-Uzak bir sunucuya SSH üzerinden **K3s cluster kurulumu** yapmanızı sağlar. Opsiyonel olarak kurulumdan sonra bir uygulama da deploy edebilirsiniz.
+Remote K3s cluster deployment via SSH. Supports both infrastructure-only and application deployment modes.
 
 <p align="center">
   <img src="docs/screenshots/deploy-manager.png" alt="Deploy Manager" width="700"/>
 </p>
 
-#### Nasıl Kullanılır?
+**Capabilities:**
+- 🎯 One-click K3s installation on remote Ubuntu servers
+- 📦 Optional Docker image or Helm chart deployment
+- 🔑 SSH key-based authentication
+- 📝 Real-time deployment logs
+- 💾 Persistent server configuration storage
 
-1. **Server IP Address**: K3s kurulacak hedef sunucunun IP adresini girin
-2. **SSH Private Key**: Sunucuya bağlanmak için SSH özel anahtarınızı yapıştırın
-3. **Action seçin**:
-   - 🟢 **Install** — K3s + Helm + Sealed Secrets + PostgreSQL + Redis kurar
-   - 🔴 **Delete** — Cluster'ı tamamen kaldırır
-4. **Deploy an application?** (opsiyonel): Toggle'ı açarsanız ek uygulama deploy edebilirsiniz:
-   - **Docker Image**: Bir Docker image adı girin (örn. `nginx:latest`). `apps` namespace'inde Deployment + NodePort olarak çalışır
-   - **Helm Chart**: Helm chart adı girin (örn. `bitnami/nginx`). Chart otomatik olarak `apps` namespace'ine kurulur
+**Requirements:**
+- Target server: Ubuntu with SSH access
+- SSH user: `devops` with sudo privileges
 
-#### Gereksinimler
-- Hedef sunucu **Ubuntu** olmalıdır
-- SSH kullanıcısı **devops** olmalı ve **sudo** yetkisine sahip olmalıdır
-- Sunucuya SSH key ile bağlantı yapılabilir olmalıdır
+**Deployment Options:**
+- **Docker Image**: Deploys container in `apps` namespace with NodePort service
+- **Helm Chart**: Installs chart (format: `repository/chart`, e.g., `bitnami/nginx`)
 
-#### Deployment Takibi
+### Image Establisher
 
-Deploy işlemi başlatıldığında canlı log sayfasına yönlendirilirsiniz:
+Instant Docker image deployment to remote K3s clusters with automatic URL generation.
 
-<p align="center">
-  <img src="docs/screenshots/deploy-status.png" alt="Deploy Status / Live Log" width="700"/>
-</p>
+**How it works:**
+1. SSH connection to target cluster
+2. Dedicated namespace creation
+3. Deployment + NodePort service creation
+4. Automatic URL generation for immediate access
 
-- Her adım gerçek zamanlı olarak loglanır
-- Sayfa otomatik olarak yenilenir
-- Deployment History tablosundan geçmiş dağıtımlarınızı görebilirsiniz
+**Prerequisites:**
+- ⚠️ **Target server must have K3s/Kubernetes already installed**
+- SSH user must have `kubectl` access
 
----
+**Popular images:**
+- `nginx:alpine` (port 80)
+- `httpd:latest` (port 80)
+- `gcr.io/google-samples/hello-app:1.0` (port 8080)
 
-### 4. Image Establisher
+### Saved Servers
 
-Herhangi bir Docker image'ını uzak bir K3s cluster'a **anında deploy eder** ve erişim URL'si verir. SSH üzerinden çalışır.
-
-<p align="center">
-  <img src="docs/screenshots/image-establisher.png" alt="Image Establisher" width="700"/>
-</p>
-
-#### Nasıl Kullanılır?
-
-1. **Server IP Address**: Hedef K3s cluster'ın IP adresini girin
-2. **SSH Private Key**: Sunucuya erişim için SSH özel anahtarınızı yapıştırın
-3. **Docker Image Name**: Deploy etmek istediğiniz image'ı girin (örn. `nginx:alpine`)
-4. **Port**: Container'ın dinlediği port numarası (varsayılan: 80)
-5. **📦 Launch** butonuna tıklayın
-
-#### Ne Yapar?
-
-1. SSH ile hedef sunucuya bağlanır
-2. Dedicated bir namespace oluşturur (`est-<id>`)
-3. Docker image'ını Deployment olarak deploy eder
-4. NodePort service ile dışarıya açar
-5. Erişim URL'si verir (örn. `http://192.168.1.125:32456`)
-
-#### ⚠️ Önemli
-
-- **Hedef sunucuda K3s/Kubernetes kurulu olmalıdır!** Bu araç cluster kurmaz, sadece mevcut cluster'a uygulama deploy eder
-- SSH kullanıcısı **devops** olmalı ve `kubectl` erişimi olmalıdır
-- Deploy edilen uygulamalar tabloda listelenir ve 🗑️ **Delete** butonu ile silinebilir
-
-#### Yaygın Image Örnekleri
-
-| Image | Port | Açıklama |
-|-------|------|----------|
-| `nginx:alpine` | 80 | Nginx web server |
-| `httpd:latest` | 80 | Apache web server |
-| `gcr.io/google-samples/hello-app:1.0` | 8080 | Google Hello App |
-| `traefik/whoami` | 80 | Request bilgilerini gösterir |
+Persistent storage of server credentials (IP + SSH key) per user. Enables one-click server selection in both Deploy Manager and Image Establisher.
 
 ---
 
-### 5. Saved Servers
+## 📦 Deployed Components
 
-Kullanıcılar sık kullandıkları sunucu bilgilerini (IP + SSH Key) kaydedebilir. Kaydedilen sunucular **Deploy Manager** ve **Image Establisher** sayfalarında otomatik olarak listelenir.
+| Component | Namespace | Access | Purpose |
+|-----------|-----------|--------|---------|
+| **K3s** | — | — | Kubernetes distribution |
+| **Helm** | — | — | Package manager |
+| **Sealed Secrets** | kube-system | Internal | Secret encryption |
+| **PostgreSQL** | postgres | NodePort 30432 | Database (Bitnami) |
+| **Redis** | redis | NodePort 30379 | Cache (Bitnami) |
+| **Backup CronJob** | backup | — | Daily 02:00 UTC |
+| **Login App** | login-app | NodePort 30080 | Web UI* |
 
-- 💾 **Save** butonu ile sunucu kaydedin
-- Kaydedilen sunuculara tıklayarak form alanlarını otomatik doldurun
-- ✕ butonu ile kaydedilmiş sunucuları silin
-- Veriler kullanıcıya özeldir — logout/login yapılsa bile korunur
-
----
-
-## 📦 Components
-
-| Component | Namespace | Access | Description |
-|-----------|-----------|--------|-------------|
-| K3s | — | — | Lightweight Kubernetes distribution |
-| Helm | — | — | Kubernetes package manager |
-| Sealed Secrets | kube-system | Internal | Encrypt secrets for GitOps |
-| PostgreSQL | postgres | NodePort 30432 | Application database (Bitnami chart) |
-| Redis | redis | NodePort 30379 | Session cache (Bitnami chart) |
-| PostgreSQL Backup | backup | CronJob | Daily backup at 02:00 UTC |
-| Login App | login-app | NodePort 30080 | Web application (only with `install-withapp`) |
+*Available only with `install-withapp`
 
 ---
 
-## 📜 Scripts
+## 🛠 Technical Stack
 
-| Script | Description |
-|--------|-------------|
-| `scripts/k3s-project.sh install` | K3s + Helm + Sealed Secrets + PostgreSQL + Redis kurulumu |
-| `scripts/k3s-project.sh install-withapp` | Yukarıdakilerin hepsi + Login App |
-| `scripts/k3s-project.sh delete` | Tüm bileşenleri kaldır (K3s dahil) |
-| `scripts/k3s-project.sh status` | Cluster durumunu göster |
-| `scripts/test-postgres.sh` | PostgreSQL bağlantı testi |
-| `scripts/test-redis.sh` | Redis bağlantı testi |
+**Infrastructure:** K3s v1.34 • Helm v3.20 • containerd  
+**Data Layer:** PostgreSQL 17 • Redis 7  
+**Application:** Python 3.11 • Flask 3.0 • Paramiko 3.4  
+**Security:** Sealed Secrets • SSH key-based auth
 
 ---
 
-## 💾 Backup
+## 💾 Backup & Recovery
 
-PostgreSQL yedeklemeleri **günlük olarak 02:00 UTC**'de CronJob ile otomatik çalışır. Yedekler `/backups` PersistentVolume'da saklanır.
+- Automated daily PostgreSQL backups at 02:00 UTC
+- Backups stored in persistent `/backups` volume
+- CronJob-based scheduling
 
 ---
 
-## 🔀 Multi-Node Migration
-
-Worker node eklemek için:
+## 🔄 Multi-Node Expansion
 
 ```bash
-# Master node'da token'ı alın
+# On master node
 cat /var/lib/rancher/k3s/server/node-token
 
-# Worker node'da çalıştırın
-curl -sfL https://get.k3s.io | K3S_URL=https://<MASTER-IP>:6443 K3S_TOKEN=<TOKEN> sh -
+# On worker node
+curl -sfL https://get.k3s.io | \
+  K3S_URL=https://<MASTER-IP>:6443 \
+  K3S_TOKEN=<TOKEN> sh -
 ```
-
----
-
-## 🛠 Tech Stack
-
-| Category | Technology |
-|----------|------------|
-| **Container Orchestration** | K3s v1.34+ |
-| **Package Manager** | Helm v3.20+ |
-| **Database** | PostgreSQL 17 (Bitnami) |
-| **Cache** | Redis 7 (Bitnami) |
-| **Secret Management** | Sealed Secrets |
-| **Application** | Python 3.11, Flask 3.0 |
-| **SSH** | Paramiko 3.4 |
-| **Container Runtime** | containerd (K3s built-in) |
-| **OS** | Ubuntu 24.04 LTS |
 
 ---
 
@@ -296,32 +182,28 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<MASTER-IP>:6443 K3S_TOKEN=<TOKEN
 
 ```
 k3s-local-cluster/
-├── app/                          # Login Application
-│   ├── app.py                    # Flask backend (Deploy Manager, Image Establisher, Saved Servers)
-│   ├── Dockerfile                # Container image definition
-│   ├── requirements.txt          # Python dependencies
-│   └── templates/                # HTML templates
-│       ├── login.html
-│       ├── register.html
-│       ├── dashboard.html
-│       ├── deploy.html           # Deploy Manager UI
-│       ├── deploy_status.html    # Live deployment log viewer
-│       └── establish.html        # Image Establisher UI
-├── helm/
-│   └── login-app/                # Helm chart for Login App
-│       ├── Chart.yaml
-│       ├── values.yaml
-│       └── templates/
+├── app/                    # Flask application
+│   ├── app.py              # Main backend
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── templates/          # UI templates
+├── helm/login-app/         # Helm chart
 ├── scripts/
-│   ├── k3s-project.sh            # Main installation script
-│   ├── test-postgres.sh          # PostgreSQL connectivity test
-│   ├── test-redis.sh             # Redis connectivity test
-│   └── create-vm.bat             # VirtualBox VM creation helper
-├── docs/
-│   ├── architecture.svg          # Architecture diagram
-│   └── screenshots/              # Application screenshots
-└── README.md
+│   ├── k3s-project.sh      # Main installer
+│   ├── test-postgres.sh
+│   └── test-redis.sh
+└── docs/
+    ├── architecture.svg
+    └── screenshots/
 ```
+
+---
+
+## 🏗 Architecture
+
+<p align="center">
+  <img src="docs/architecture.svg" alt="Architecture Diagram" width="100%"/>
+</p>
 
 ---
 
