@@ -10,4 +10,5 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
+docs/MULAKAT-HAZIRLIK.md
 *.swo

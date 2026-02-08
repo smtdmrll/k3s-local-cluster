@@ -1,7 +1,12 @@
 import os
+import io
 import redis
 import psycopg2
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import paramiko
+import threading
+import json
+import time
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 
@@ -53,6 +58,19 @@ def init_db():
             user_id INTEGER REFERENCES users(id),
             login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ip_address VARCHAR(45)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS deployments (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            server_ip VARCHAR(45) NOT NULL,
+            docker_image VARCHAR(255) NOT NULL,
+            action VARCHAR(10) NOT NULL,
+            status VARCHAR(20) DEFAULT 'pending',
+            log TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP
         )
     ''')
     conn.commit()
@@ -201,6 +219,246 @@ def logout():
         r.delete(f"user:{session['user_id']}")
     session.clear()
     return redirect(url_for('login'))
+
+
+# ─────────────────────────────────────────────
+#  Deployment Manager
+# ─────────────────────────────────────────────
+
+def _update_deployment(deploy_id, **fields):
+    """Update deployment record in DB."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    sets = ', '.join(f"{k} = %s" for k in fields)
+    cur.execute(f"UPDATE deployments SET {sets} WHERE id = %s",
+                list(fields.values()) + [deploy_id])
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def _append_log(deploy_id, line):
+    """Append a line to the deployment log."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE deployments SET log = log || %s WHERE id = %s",
+                (line + '\n', deploy_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def _run_ssh_command(ssh, command, deploy_id):
+    """Execute a command over SSH and stream output to DB log."""
+    _append_log(deploy_id, f"$ {command}")
+    stdin, stdout, stderr = ssh.exec_command(command, timeout=600)
+    output = ''
+    for line in stdout:
+        text = line.strip()
+        output += text + '\n'
+        _append_log(deploy_id, text)
+    err = stderr.read().decode().strip()
+    if err:
+        _append_log(deploy_id, f"STDERR: {err}")
+        output += err + '\n'
+    exit_code = stdout.channel.recv_exit_status()
+    return exit_code, output
+
+
+def _deploy_worker(deploy_id, server_ip, ssh_key_content, docker_image, action, user_id):
+    """Background thread: SSH into server and run install/delete."""
+    try:
+        _update_deployment(deploy_id, status='running')
+        _append_log(deploy_id, f"Connecting to {server_ip}...")
+
+        # Parse SSH key
+        key_file = io.StringIO(ssh_key_content)
+        try:
+            pkey = paramiko.RSAKey.from_private_key(key_file)
+        except Exception:
+            key_file.seek(0)
+            try:
+                pkey = paramiko.Ed25519Key.from_private_key(key_file)
+            except Exception:
+                key_file.seek(0)
+                pkey = paramiko.ECDSAKey.from_private_key(key_file)
+
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(server_ip, username='devops', pkey=pkey, timeout=30)
+        _append_log(deploy_id, f"Connected to {server_ip} as devops")
+
+        if action == 'install':
+            # Step 1: Clone repo & install cluster
+            _append_log(deploy_id, "="*50)
+            _append_log(deploy_id, "STEP 1: Setting up K3s cluster...")
+            _append_log(deploy_id, "="*50)
+
+            code, _ = _run_ssh_command(ssh,
+                'if [ ! -d /home/devops/k3s-local-cluster ]; then '
+                'git clone https://github.com/smtdmrll/k3s-local-cluster.git /home/devops/k3s-local-cluster; '
+                'fi', deploy_id)
+
+            code, _ = _run_ssh_command(ssh,
+                'sudo bash /home/devops/k3s-local-cluster/scripts/k3s-project.sh install',
+                deploy_id)
+
+            if code != 0:
+                _update_deployment(deploy_id, status='failed',
+                                   finished_at=time.strftime('%Y-%m-%d %H:%M:%S'))
+                _append_log(deploy_id, "ERROR: Cluster installation failed!")
+                ssh.close()
+                return
+
+            # Step 2: Deploy custom image
+            _append_log(deploy_id, "="*50)
+            _append_log(deploy_id, f"STEP 2: Deploying custom image: {docker_image}")
+            _append_log(deploy_id, "="*50)
+
+            image_name = docker_image.split(':')[0].split('/')[-1]
+            deploy_name = image_name.replace('.', '-').replace('_', '-')
+
+            commands = [
+                f'sudo kubectl create namespace custom-apps --dry-run=client -o yaml | sudo kubectl apply -f -',
+                f'sudo kubectl create deployment {deploy_name} --image={docker_image} -n custom-apps --dry-run=client -o yaml | sudo kubectl apply -f -',
+                f'sudo kubectl set image deployment/{deploy_name} {deploy_name}={docker_image} -n custom-apps 2>/dev/null || true',
+                f'sudo kubectl rollout status deployment/{deploy_name} -n custom-apps --timeout=180s',
+                f'sudo kubectl get pods -n custom-apps',
+            ]
+
+            for cmd in commands:
+                code, _ = _run_ssh_command(ssh, cmd, deploy_id)
+
+            _append_log(deploy_id, "="*50)
+            _append_log(deploy_id, "Deployment completed successfully!")
+            _append_log(deploy_id, "="*50)
+            _update_deployment(deploy_id, status='success',
+                               finished_at=time.strftime('%Y-%m-%d %H:%M:%S'))
+
+        elif action == 'delete':
+            _append_log(deploy_id, "="*50)
+            _append_log(deploy_id, "Deleting cluster...")
+            _append_log(deploy_id, "="*50)
+
+            code, _ = _run_ssh_command(ssh,
+                'sudo bash /home/devops/k3s-local-cluster/scripts/k3s-project.sh delete',
+                deploy_id)
+
+            status = 'success' if code == 0 else 'failed'
+            _append_log(deploy_id, f"Cluster deletion: {status}")
+            _update_deployment(deploy_id, status=status,
+                               finished_at=time.strftime('%Y-%m-%d %H:%M:%S'))
+
+        ssh.close()
+
+    except Exception as e:
+        _append_log(deploy_id, f"FATAL ERROR: {str(e)}")
+        _update_deployment(deploy_id, status='failed',
+                           finished_at=time.strftime('%Y-%m-%d %H:%M:%S'))
+
+
+@app.route('/deploy', methods=['GET', 'POST'])
+@login_required
+def deploy():
+    if request.method == 'POST':
+        server_ip = request.form.get('server_ip', '').strip()
+        docker_image = request.form.get('docker_image', '').strip()
+        ssh_key_text = request.form.get('ssh_key', '').strip()
+        action = request.form.get('action', 'install')
+
+        # Validate
+        errors = []
+        if not server_ip:
+            errors.append('Server IP is required')
+        if not docker_image and action == 'install':
+            errors.append('Docker Image is required for install')
+        if not ssh_key_text:
+            errors.append('SSH Private Key is required')
+        if action not in ('install', 'delete'):
+            errors.append('Invalid action')
+
+        if errors:
+            for e in errors:
+                flash(e)
+            return redirect(url_for('deploy'))
+
+        # Create deployment record
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO deployments (user_id, server_ip, docker_image, action, status) '
+            'VALUES (%s, %s, %s, %s, %s) RETURNING id',
+            (session['user_id'], server_ip, docker_image or 'N/A', action, 'pending')
+        )
+        deploy_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Start background thread
+        thread = threading.Thread(
+            target=_deploy_worker,
+            args=(deploy_id, server_ip, ssh_key_text, docker_image, action, session['user_id']),
+            daemon=True
+        )
+        thread.start()
+
+        flash(f'Deployment #{deploy_id} started! Action: {action}')
+        return redirect(url_for('deploy_status', deploy_id=deploy_id))
+
+    # GET — show form + history
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT id, server_ip, docker_image, action, status, created_at, finished_at '
+        'FROM deployments WHERE user_id = %s ORDER BY id DESC LIMIT 20',
+        (session['user_id'],)
+    )
+    history = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return render_template('deploy.html', history=history)
+
+
+@app.route('/deploy/<int:deploy_id>')
+@login_required
+def deploy_status(deploy_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT id, server_ip, docker_image, action, status, log, created_at, finished_at '
+        'FROM deployments WHERE id = %s AND user_id = %s',
+        (deploy_id, session['user_id'])
+    )
+    deployment = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not deployment:
+        flash('Deployment not found')
+        return redirect(url_for('deploy'))
+
+    return render_template('deploy_status.html', d=deployment)
+
+
+@app.route('/api/deploy/<int:deploy_id>/status')
+@login_required
+def api_deploy_status(deploy_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT status, log FROM deployments WHERE id = %s AND user_id = %s',
+        (deploy_id, session['user_id'])
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        return {'error': 'not found'}, 404
+
+    return {'status': row[0], 'log': row[1]}
 
 with app.app_context():
     try:
