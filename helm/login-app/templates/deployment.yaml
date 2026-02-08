@@ -14,7 +14,6 @@ spec:
       labels:
         {{- include "login-app.selectorLabels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "login-app.fullname" . }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
