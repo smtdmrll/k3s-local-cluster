@@ -4,3 +4,4 @@ redis==5.0.1
 Werkzeug==3.0.1
 gunicorn==21.2.0
 paramiko==3.4.0
+kubernetes==29.0.0

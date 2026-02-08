@@ -20,7 +20,7 @@ postgresql:
 redis:
   host: redis-master.redis.svc.cluster.local
   port: 6379
-  password: "ZTeDYLBlM7rUVxGp"
+  password: "FDZvgmM32o9ltym4"
 
 app:
   secretKey: "lOF2Ks0pA1vM5Auu"

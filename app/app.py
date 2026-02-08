@@ -1,14 +1,16 @@
 import os
 import io
+import re
 import redis
 import psycopg2
 import paramiko
 import threading
 import json
 import time
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, stream_with_context
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, stream_with_context, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from kubernetes import client as k8s_client, config as k8s_config
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -71,6 +73,20 @@ def init_db():
             log TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             finished_at TIMESTAMP
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS established_apps (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            app_name VARCHAR(100) NOT NULL,
+            image VARCHAR(255) NOT NULL,
+            namespace VARCHAR(100) NOT NULL,
+            container_port INTEGER DEFAULT 80,
+            node_port INTEGER,
+            status VARCHAR(20) DEFAULT 'pending',
+            url VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -459,6 +475,215 @@ def api_deploy_status(deploy_id):
         return {'error': 'not found'}, 404
 
     return {'status': row[0], 'log': row[1]}
+
+# ─────────────────────────────────────────────
+#  Image Establisher
+# ─────────────────────────────────────────────
+
+def _get_k8s_clients():
+    """Get Kubernetes API clients (in-cluster or local kubeconfig)."""
+    try:
+        k8s_config.load_incluster_config()
+    except Exception:
+        k8s_config.load_kube_config()
+    return k8s_client.CoreV1Api(), k8s_client.AppsV1Api()
+
+
+def _get_node_ip():
+    """Get the first node's InternalIP."""
+    v1, _ = _get_k8s_clients()
+    nodes = v1.list_node()
+    for addr in nodes.items[0].status.addresses:
+        if addr.type == 'InternalIP':
+            return addr.address
+    return nodes.items[0].status.addresses[0].address
+
+
+def _sanitize_name(image):
+    """Convert a Docker image name to a valid K8s resource name."""
+    name = image.split('/')[-1].split(':')[0]
+    name = re.sub(r'[^a-z0-9\-]', '-', name.lower())
+    name = re.sub(r'-+', '-', name).strip('-')
+    return name[:50] or 'app'
+
+
+def _update_established(app_id, **fields):
+    """Update an established_apps record."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    sets = ', '.join(f"{k} = %s" for k in fields)
+    cur.execute(f"UPDATE established_apps SET {sets} WHERE id = %s",
+                list(fields.values()) + [app_id])
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def _establish_worker(app_id, image, container_port):
+    """Background thread: create namespace + deployment + NodePort service."""
+    namespace = f"est-{app_id}"
+    app_name = f"est-app-{app_id}"
+    try:
+        _update_established(app_id, status='creating', namespace=namespace)
+        v1, apps_v1 = _get_k8s_clients()
+
+        # 1. Create namespace
+        v1.create_namespace(
+            k8s_client.V1Namespace(metadata=k8s_client.V1ObjectMeta(name=namespace))
+        )
+
+        # 2. Create deployment
+        deployment = k8s_client.V1Deployment(
+            metadata=k8s_client.V1ObjectMeta(name=app_name, namespace=namespace),
+            spec=k8s_client.V1DeploymentSpec(
+                replicas=1,
+                selector=k8s_client.V1LabelSelector(match_labels={'app': app_name}),
+                template=k8s_client.V1PodTemplateSpec(
+                    metadata=k8s_client.V1ObjectMeta(labels={'app': app_name}),
+                    spec=k8s_client.V1PodSpec(containers=[
+                        k8s_client.V1Container(
+                            name=app_name,
+                            image=image,
+                            ports=[k8s_client.V1ContainerPort(container_port=container_port)]
+                        )
+                    ])
+                )
+            )
+        )
+        apps_v1.create_namespaced_deployment(namespace, deployment)
+
+        # 3. Create NodePort service
+        service = k8s_client.V1Service(
+            metadata=k8s_client.V1ObjectMeta(name=app_name, namespace=namespace),
+            spec=k8s_client.V1ServiceSpec(
+                type='NodePort',
+                selector={'app': app_name},
+                ports=[k8s_client.V1ServicePort(port=container_port, target_port=container_port)]
+            )
+        )
+        svc = v1.create_namespaced_service(namespace, service)
+        node_port = svc.spec.ports[0].node_port
+
+        # 4. Wait for rollout (max 120s)
+        for _ in range(24):
+            dep = apps_v1.read_namespaced_deployment_status(app_name, namespace)
+            if dep.status.ready_replicas and dep.status.ready_replicas >= 1:
+                break
+            time.sleep(5)
+
+        # 5. Build URL
+        node_ip = _get_node_ip()
+        url = f"http://{node_ip}:{node_port}"
+
+        _update_established(app_id, status='running', node_port=node_port, url=url)
+
+    except Exception as e:
+        _update_established(app_id, status='failed', url=str(e)[:250])
+
+
+def _destroy_established(app_id):
+    """Delete namespace (cascades all resources)."""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('SELECT namespace FROM established_apps WHERE id = %s', (app_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row or not row[0]:
+            return
+
+        v1, _ = _get_k8s_clients()
+        v1.delete_namespace(row[0])
+        _update_established(app_id, status='deleted')
+    except Exception as e:
+        _update_established(app_id, status='failed', url=f"Delete error: {str(e)[:200]}")
+
+
+@app.route('/establish', methods=['GET', 'POST'])
+@login_required
+def establish():
+    if request.method == 'POST':
+        image = request.form.get('image', '').strip()
+        port_str = request.form.get('port', '80').strip()
+        container_port = int(port_str) if port_str.isdigit() else 80
+
+        if not image:
+            flash('Docker image name is required')
+            return redirect(url_for('establish'))
+
+        app_name = _sanitize_name(image)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO established_apps (user_id, app_name, image, namespace, container_port, status) '
+            'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+            (session['user_id'], app_name, image, '', container_port, 'pending')
+        )
+        est_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        thread = threading.Thread(
+            target=_establish_worker,
+            args=(est_id, image, container_port),
+            daemon=True
+        )
+        thread.start()
+
+        flash(f'Image #{est_id} is being established...')
+        return redirect(url_for('establish'))
+
+    # GET — list
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT id, app_name, image, namespace, node_port, status, url, created_at '
+        'FROM established_apps WHERE user_id = %s ORDER BY id DESC LIMIT 30',
+        (session['user_id'],)
+    )
+    apps = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return render_template('establish.html', apps=apps)
+
+
+@app.route('/establish/<int:est_id>/delete', methods=['POST'])
+@login_required
+def establish_delete(est_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM established_apps WHERE id = %s AND user_id = %s', (est_id, session['user_id']))
+    if not cur.fetchone():
+        flash('App not found')
+    else:
+        thread = threading.Thread(target=_destroy_established, args=(est_id,), daemon=True)
+        thread.start()
+        flash(f'App #{est_id} is being deleted...')
+    cur.close()
+    conn.close()
+    return redirect(url_for('establish'))
+
+
+@app.route('/api/establish/<int:est_id>/status')
+@login_required
+def api_establish_status(est_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT status, url, node_port FROM established_apps WHERE id = %s AND user_id = %s',
+        (est_id, session['user_id'])
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'status': row[0], 'url': row[1], 'node_port': row[2]})
+
 
 with app.app_context():
     try:
