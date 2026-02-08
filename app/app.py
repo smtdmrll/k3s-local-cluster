@@ -96,6 +96,15 @@ def init_db():
             UNIQUE(user_id, name)
         )
     ''')
+    # Migrate: add new columns to established_apps if they don't exist
+    for col, coldef in [
+        ('server_ip', "VARCHAR(45) DEFAULT ''"),
+        ('log', "TEXT DEFAULT ''"),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE established_apps ADD COLUMN {col} {coldef}")
+        except Exception:
+            conn.rollback()
     conn.commit()
     cur.close()
     conn.close()
