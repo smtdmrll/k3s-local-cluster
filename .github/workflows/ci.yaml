@@ -70,10 +70,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up k3s
-        uses: debianmaster/actions-k3s@master
+      - name: Set up k3d
+        uses: k3d-io/k3d-action@v2.0.0
         with:
-          version: v1.28.4-k3s1
+          cluster-name: "test-cluster"
+          args: --wait
 
       - name: Set up Helm
         uses: azure/setup-helm@v3
