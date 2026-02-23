@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deployment #{{ d[0] }} - K3s Cluster Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .navbar h1 { color: white; font-size: 1.5rem; }
+        .navbar div { display: flex; gap: 0.5rem; }
+        .navbar a { color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(255,255,255,0.2); border-radius: 5px; font-size: 0.9rem; }
+        .navbar a:hover { background: rgba(255,255,255,0.3); }
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+
+        .status-card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .status-card h2 { color: #333; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        .meta-item { background: #f8f9fa; padding: 1rem; border-radius: 8px; }
+        .meta-item .label { color: #888; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; margin-bottom: 0.25rem; }
+        .meta-item .value { color: #333; font-size: 1rem; font-weight: 600; word-break: break-all; }
+
+        .badge { padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; display: inline-block; }
+        .badge-pending { background: #FFF3E0; color: #E67E22; }
+        .badge-running { background: #E3F2FD; color: #1565C0; animation: pulse 1.5s infinite; }
+        .badge-success { background: #E8F5E9; color: #27AE60; }
+        .badge-failed { background: #FDEDEC; color: #E74C3C; }
+        .badge-install { background: #E8F5E9; color: #27AE60; }
+        .badge-delete { background: #FDEDEC; color: #E74C3C; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .log-section { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .log-section h3 { color: #333; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .auto-scroll-label { color: #888; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
+
+        .log-box {
+            background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 0.82rem;
+            padding: 1.25rem; border-radius: 8px; max-height: 500px; overflow-y: auto;
+            line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+        }
+        .log-box .line-ok { color: #6A9955; }
+        .log-box .line-err { color: #F44747; }
+        .log-box .line-info { color: #569CD6; }
+        .log-box .line-warn { color: #CE9178; }
+        .log-box .cursor { display: inline-block; width: 8px; height: 14px; background: #d4d4d4; animation: blink 1s step-end infinite; vertical-align: middle; }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .back-link { display: inline-block; margin-top: 1.5rem; color: #667eea; text-decoration: none; font-weight: 600; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>K3s Cluster Manager</h1>
+        <div>
+            <a href="{{ url_for('deploy') }}">🚀 Deploy Manager</a>
+            <a href="{{ url_for('dashboard') }}">📊 Dashboard</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="status-card">
+            <h2>📦 Deployment #{{ d[0] }}</h2>
+            <div class="meta-grid">
+                <div class="meta-item">
+                    <div class="label">Server IP</div>
+                    <div class="value">{{ d[1] }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Docker Image</div>
+                    <div class="value">{{ d[2] }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Action</div>
+                    <div class="value"><span class="badge badge-{{ d[3] }}">{{ d[3] }}</span></div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Status</div>
+                    <div class="value"><span class="badge badge-{{ d[4] }}" id="statusBadge">{{ d[4] }}</span></div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Started</div>
+                    <div class="value">{{ d[6].strftime('%Y-%m-%d %H:%M:%S') if d[6] else '-' }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Finished</div>
+                    <div class="value" id="finishedAt">{{ d[7].strftime('%Y-%m-%d %H:%M:%S') if d[7] else '-' }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="log-section">
+            <div class="log-header">
+                <h3>📜 Live Log Output</h3>
+                <label class="auto-scroll-label">
+                    <input type="checkbox" id="autoScroll" checked> Auto-scroll
+                </label>
+            </div>
+            <div class="log-box" id="logBox">{{ d[5] or 'Waiting for output...' }}<span class="cursor" id="cursor"></span></div>
+        </div>
+
+        <a href="{{ url_for('deploy') }}" class="back-link">← Back to Deploy Manager</a>
+    </div>
+
+    <script>
+        const deployId = {{ d[0] }};
+        const logBox = document.getElementById('logBox');
+        const cursor = document.getElementById('cursor');
+        const statusBadge = document.getElementById('statusBadge');
+        const finishedAt = document.getElementById('finishedAt');
+        const autoScrollCheckbox = document.getElementById('autoScroll');
+        let polling = true;
+
+        function colorize(text) {
+            return text.split('\n').map(line => {
+                if (line.startsWith('[ERROR]') || line.startsWith('Error') || line.includes('FAILED'))
+                    return '<span class="line-err">' + line + '</span>';
+                if (line.startsWith('[OK]') || line.includes('SUCCESS') || line.includes('✓'))
+                    return '<span class="line-ok">' + line + '</span>';
+                if (line.startsWith('[INFO]') || line.startsWith('>>>') || line.startsWith('---'))
+                    return '<span class="line-info">' + line + '</span>';
+                if (line.startsWith('[WARN]') || line.includes('WARNING'))
+                    return '<span class="line-warn">' + line + '</span>';
+                return line;
+            }).join('\n');
+        }
+
+        function poll() {
+            if (!polling) return;
+            fetch('/api/deploy/' + deployId + '/status')
+                .then(r => r.json())
+                .then(data => {
+                    logBox.innerHTML = colorize(data.log || 'Waiting for output...');
+
+                    statusBadge.textContent = data.status;
+                    statusBadge.className = 'badge badge-' + data.status;
+
+                    if (data.finished_at) {
+                        finishedAt.textContent = data.finished_at;
+                    }
+
+                    if (data.status === 'running' || data.status === 'pending') {
+                        logBox.innerHTML += '<span class="cursor"></span>';
+                        setTimeout(poll, 2000);
+                    } else {
+                        polling = false;
+                    }
+
+                    if (autoScrollCheckbox.checked) {
+                        logBox.scrollTop = logBox.scrollHeight;
+                    }
+                })
+                .catch(() => setTimeout(poll, 3000));
+        }
+
+        // Start polling
+        const initialStatus = '{{ d[4] }}';
+        if (initialStatus === 'pending' || initialStatus === 'running') {
+            setTimeout(poll, 2000);
+        } else {
+            logBox.innerHTML = colorize(logBox.textContent);
+            cursor.style.display = 'none';
+            polling = false;
+        }
+    </script>
+</body>
+</html>

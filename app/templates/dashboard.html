@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - K3s Demo App</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .navbar h1 { color: white; font-size: 1.5rem; }
+        .navbar a { color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(255,255,255,0.2); border-radius: 5px; }
+        .navbar a:hover { background: rgba(255,255,255,0.3); }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .welcome { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+        .welcome h2 { color: #333; margin-bottom: 0.5rem; }
+        .welcome p { color: #666; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat-card { background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        .stat-card h3 { color: #667eea; font-size: 2rem; margin-bottom: 0.5rem; }
+        .stat-card p { color: #666; }
+        .history { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .history h3 { color: #333; margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
+        th { color: #666; font-weight: 500; }
+        .info-box { background: #e8f4fd; border-left: 4px solid #667eea; padding: 1rem; margin-top: 2rem; border-radius: 0 5px 5px 0; }
+        .info-box h4 { color: #333; margin-bottom: 0.5rem; }
+        .info-box p { color: #666; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>K3s Cluster Manager</h1>
+        <div>
+            <a href="{{ url_for('deploy') }}" style="margin-right:0.5rem;">🚀 Deploy Manager</a>
+            <a href="{{ url_for('establish') }}" style="margin-right:0.5rem;">📦 Image Establisher</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="welcome">
+            <h2>Welcome, {{ user.username }}</h2>
+            <p>Email: {{ user.email }}</p>
+        </div>
+        <div class="stats">
+            <div class="stat-card">
+                <h3>{{ login_count }}</h3>
+                <p>Total Logins (Redis Cache)</p>
+            </div>
+            <div class="stat-card">
+                <h3>{{ login_history|length }}</h3>
+                <p>Recent Sessions</p>
+            </div>
+        </div>
+        <div class="history">
+            <h3>Login History (PostgreSQL)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date/Time</th>
+                        <th>IP Address</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in login_history %}
+                    <tr>
+                        <td>{{ entry[0] }}</td>
+                        <td>{{ entry[1] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="info-box">
+            <h4>Architecture Info</h4>
+            <p>This application demonstrates PostgreSQL for persistent data storage and Redis for session caching. User data is stored in PostgreSQL while login counts are cached in Redis for fast retrieval.</p>
+        </div>
+    </div>
+</body>
+</html>

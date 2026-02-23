@@ -1,0 +1,17 @@
+.postgres-password
+.redis-password
+*.log
+.DS_Store
+.env
+.env.local
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sealed Secrets - cluster-specific certificate
+sealed-secrets/
+pub-cert.pem

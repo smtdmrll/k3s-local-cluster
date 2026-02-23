@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Manager - K3s Cluster Manager</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .navbar h1 { color: white; font-size: 1.5rem; }
+        .navbar div { display: flex; gap: 0.5rem; }
+        .navbar a { color: white; text-decoration: none; padding: 0.5rem 1rem; background: rgba(255,255,255,0.2); border-radius: 5px; font-size: 0.9rem; }
+        .navbar a:hover { background: rgba(255,255,255,0.3); }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+
+        .deploy-form { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+        .deploy-form h2 { color: #333; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group.full-width { grid-column: 1 / -1; }
+        .form-group label { display: block; margin-bottom: 0.5rem; color: #555; font-weight: 600; font-size: 0.9rem; }
+        .form-group label .hint { font-weight: 400; color: #999; font-size: 0.8rem; }
+        input[type="text"], select, textarea {
+            width: 100%; padding: 0.75rem; border: 2px solid #e1e1e1; border-radius: 8px;
+            font-size: 0.95rem; transition: border-color 0.3s; font-family: inherit;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; }
+        textarea { resize: vertical; font-family: 'Courier New', monospace; font-size: 0.85rem; background: #f8f9fa; }
+
+        .action-group { display: flex; gap: 1rem; align-items: end; }
+        .action-group .form-group { flex: 1; }
+
+        .btn { padding: 0.75rem 2rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-install { background: linear-gradient(135deg, #27AE60, #2ECC71); color: white; }
+        .btn-install:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(39,174,96,0.4); }
+        .btn-delete { background: linear-gradient(135deg, #E74C3C, #C0392B); color: white; }
+        .btn-delete:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(231,76,60,0.4); }
+        .btn-save { background: linear-gradient(135deg, #3498DB, #2980B9); color: white; padding: 0.5rem 1rem; font-size: 0.85rem; }
+        .btn-save:hover { transform: translateY(-1px); }
+        .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 5px; }
+        .btn-outline { background: transparent; border: 2px solid #667eea; color: #667eea; }
+        .btn-outline:hover { background: #667eea; color: white; }
+        .btn-danger-sm { background: #E74C3C; color: white; padding: 0.3rem 0.6rem; font-size: 0.75rem; border: none; border-radius: 4px; cursor: pointer; }
+
+        .flash { background: #fee; color: #c00; padding: 0.75rem; border-radius: 5px; margin-bottom: 1rem; text-align: center; }
+        .flash.success { background: #efe; color: #060; }
+
+        /* Saved servers */
+        .saved-servers { background: #f0f4ff; border: 2px solid #667eea22; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
+        .saved-servers h4 { color: #667eea; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .server-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .server-chip { display: inline-flex; align-items: center; gap: 0.5rem; background: white; border: 1px solid #ddd; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; }
+        .server-chip:hover { border-color: #667eea; background: #f0f4ff; }
+        .server-chip.active { border-color: #667eea; background: #667eea; color: white; }
+        .server-chip .chip-delete { color: #ccc; font-size: 0.7rem; margin-left: 0.2rem; }
+        .server-chip:hover .chip-delete { color: #E74C3C; }
+        .no-servers { color: #999; font-size: 0.85rem; }
+
+        /* App deploy toggle */
+        .app-section { border: 2px solid #e1e1e1; border-radius: 8px; padding: 1.5rem; margin-top: 1rem; transition: all 0.3s; }
+        .app-section.active { border-color: #27AE60; background: #f8fff8; }
+        .app-toggle { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+        .toggle-switch { position: relative; width: 50px; height: 26px; }
+        .toggle-switch input { display: none; }
+        .toggle-slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; border-radius: 26px; cursor: pointer; transition: 0.3s; }
+        .toggle-slider:before { content: ''; position: absolute; width: 20px; height: 20px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+        .toggle-switch input:checked + .toggle-slider { background: #27AE60; }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
+        .app-fields { display: none; }
+        .app-fields.show { display: block; }
+
+        .history { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .history h3 { color: #333; margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        th { color: #666; font-weight: 600; background: #f9f9f9; }
+
+        .badge { padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+        .badge-pending { background: #FFF3E0; color: #E67E22; }
+        .badge-running { background: #E3F2FD; color: #1565C0; }
+        .badge-success { background: #E8F5E9; color: #27AE60; }
+        .badge-failed { background: #FDEDEC; color: #E74C3C; }
+        .badge-install { background: #E8F5E9; color: #27AE60; }
+        .badge-delete { background: #FDEDEC; color: #E74C3C; }
+
+        .view-link { color: #667eea; text-decoration: none; font-weight: 600; }
+        .view-link:hover { text-decoration: underline; }
+
+        .info-box { background: #e8f4fd; border-left: 4px solid #667eea; padding: 1rem; margin-top: 1rem; border-radius: 0 5px 5px 0; }
+        .info-box p { color: #555; font-size: 0.85rem; line-height: 1.6; }
+        .info-box code { background: #dce8f5; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }
+
+        .save-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+        .save-row input { flex: 1; padding: 0.4rem 0.6rem; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>K3s Cluster Manager</h1>
+        <div>
+            <a href="{{ url_for('dashboard') }}">📊 Dashboard</a>
+            <a href="{{ url_for('establish') }}">📦 Image Establisher</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash {% if 'started' in message %}success{% endif %}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="deploy-form">
+            <h2>🚀 Deploy K3s to Remote Server</h2>
+
+            <!-- Saved Servers -->
+            <div class="saved-servers">
+                <h4>💾 Saved Servers <span style="font-weight:400; color:#999;">(click to load)</span></h4>
+                <div class="server-chips" id="serverChips">
+                    <span class="no-servers" id="noServers">Loading...</span>
+                </div>
+            </div>
+
+            <form method="POST" id="deployForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Server IP Address</label>
+                        <input type="text" name="server_ip" id="serverIp" placeholder="192.168.1.200" required>
+                    </div>
+                    <div class="form-group" style="display:flex; align-items:end; gap:0.5rem;">
+                        <div style="flex:1;">
+                            <label>Save Server <span class="hint">(optional)</span></label>
+                            <div class="save-row">
+                                <input type="text" id="saveName" placeholder="e.g. test-server">
+                                <button type="button" class="btn btn-save btn-sm" onclick="saveServer()">💾 Save</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group full-width">
+                        <label>SSH Private Key <span class="hint">(paste your private key content)</span></label>
+                        <textarea name="ssh_key" id="sshKey" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----" required></textarea>
+                    </div>
+                </div>
+
+                <!-- App Deploy Toggle -->
+                <div class="app-section" id="appSection">
+                    <div class="app-toggle">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="deployAppToggle" name="deploy_app" value="yes" onchange="toggleAppFields()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div>
+                            <strong>Deploy an application?</strong>
+                            <span class="hint" style="display:block;">After K3s install, also deploy a Docker image or Helm chart</span>
+                        </div>
+                    </div>
+                    <div class="app-fields" id="appFields">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Docker Image <span class="hint">(public image)</span></label>
+                                <input type="text" name="app_image" id="appImage" placeholder="nginx:latest, httpd:alpine">
+                            </div>
+                            <div class="form-group">
+                                <label>OR Helm Chart <span class="hint">(repo/chart)</span></label>
+                                <input type="text" name="app_helm" id="appHelm" placeholder="bitnami/nginx, bitnami/redis">
+                            </div>
+                        </div>
+                        <div class="info-box" style="margin-top:0.5rem;">
+                            <p>
+                                <strong>Docker Image:</strong> Pulls image → creates Deployment + NodePort in <code>apps</code> namespace.<br>
+                                <strong>Helm Chart:</strong> Adds repo → installs chart in <code>apps</code> namespace. Format: <code>repo/chart</code> (e.g. <code>bitnami/nginx</code>)
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-group" style="margin-top: 1.5rem;">
+                    <div class="form-group">
+                        <label>Action</label>
+                        <select name="action" id="actionSelect" onchange="toggleAction()">
+                            <option value="install">🟢 Install — K3s + Helm + Sealed Secrets + PostgreSQL + Redis</option>
+                            <option value="delete">🔴 Delete — Remove Entire Cluster</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-install" id="submitBtn">🚀 Execute</button>
+                </div>
+            </form>
+
+            <div class="info-box" style="margin-top:1.5rem;">
+                <p>
+                    <strong>Install:</strong> SSH → Clone repo → <code>k3s-project.sh install</code> → K3s + Helm + Sealed Secrets + PostgreSQL + Redis. Optionally deploy an app afterwards.<br>
+                    <strong>Delete:</strong> SSH → <code>k3s-project.sh delete</code> → Remove cluster completely.<br>
+                    <strong>Note:</strong> Server must have Ubuntu, SSH user <code>devops</code> with sudo access.
+                </p>
+            </div>
+        </div>
+
+        {% if history %}
+        <div class="history">
+            <h3>📋 Deployment History</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Server</th>
+                        <th>Description</th>
+                        <th>Action</th>
+                        <th>Status</th>
+                        <th>Started</th>
+                        <th>Finished</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in history %}
+                    <tr>
+                        <td>{{ d[0] }}</td>
+                        <td><code>{{ d[1] }}</code></td>
+                        <td><code>{{ d[2][:40] }}</code></td>
+                        <td><span class="badge badge-{{ d[3] }}">{{ d[3] }}</span></td>
+                        <td><span class="badge badge-{{ d[4] }}">{{ d[4] }}</span></td>
+                        <td>{{ d[5].strftime('%m/%d %H:%M') if d[5] else '-' }}</td>
+                        <td>{{ d[6].strftime('%m/%d %H:%M') if d[6] else '-' }}</td>
+                        <td><a href="{{ url_for('deploy_status', deploy_id=d[0]) }}" class="view-link">View Log →</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Toggle app deploy fields
+        function toggleAppFields() {
+            const checked = document.getElementById('deployAppToggle').checked;
+            document.getElementById('appFields').classList.toggle('show', checked);
+            document.getElementById('appSection').classList.toggle('active', checked);
+        }
+
+        // Toggle action button style
+        function toggleAction() {
+            const action = document.getElementById('actionSelect').value;
+            const btn = document.getElementById('submitBtn');
+            const appSection = document.getElementById('appSection');
+            if (action === 'delete') {
+                btn.className = 'btn btn-delete';
+                btn.textContent = '🗑️ Delete Cluster';
+                appSection.style.display = 'none';
+            } else {
+                btn.className = 'btn btn-install';
+                btn.textContent = '🚀 Execute';
+                appSection.style.display = 'block';
+            }
+        }
+
+        // Load saved servers
+        function loadServers() {
+            fetch('/api/servers')
+                .then(r => r.json())
+                .then(servers => {
+                    const container = document.getElementById('serverChips');
+                    if (servers.length === 0) {
+                        container.innerHTML = '<span class="no-servers">No saved servers. Fill in the form and click 💾 Save.</span>';
+                        return;
+                    }
+                    container.innerHTML = servers.map(s =>
+                        `<span class="server-chip" onclick="loadServer(${s.id})" data-id="${s.id}">
+                            🖥️ ${s.name} <span style="color:#999;">(${s.server_ip})</span>
+                            <span class="chip-delete" onclick="event.stopPropagation(); deleteServer(${s.id})">✕</span>
+                        </span>`
+                    ).join('');
+                })
+                .catch(() => {
+                    document.getElementById('serverChips').innerHTML = '<span class="no-servers">Could not load servers.</span>';
+                });
+        }
+
+        // Load a saved server into the form
+        function loadServer(id) {
+            fetch('/api/servers/' + id)
+                .then(r => r.json())
+                .then(s => {
+                    document.getElementById('serverIp').value = s.server_ip;
+                    document.getElementById('sshKey').value = s.ssh_key;
+                    document.getElementById('saveName').value = s.name;
+                    // Highlight active chip
+                    document.querySelectorAll('.server-chip').forEach(c => c.classList.remove('active'));
+                    const chip = document.querySelector(`.server-chip[data-id="${id}"]`);
+                    if (chip) chip.classList.add('active');
+                });
+        }
+
+        // Save server
+        function saveServer() {
+            const name = document.getElementById('saveName').value.trim();
+            const server_ip = document.getElementById('serverIp').value.trim();
+            const ssh_key = document.getElementById('sshKey').value.trim();
+            if (!name || !server_ip || !ssh_key) {
+                alert('Fill in Server IP, SSH Key, and a name to save.');
+                return;
+            }
+            fetch('/api/servers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, server_ip, ssh_key})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { alert(data.error); return; }
+                loadServers();
+            });
+        }
+
+        // Delete saved server
+        function deleteServer(id) {
+            if (!confirm('Delete this saved server?')) return;
+            fetch('/api/servers/' + id, {method: 'DELETE'})
+                .then(() => loadServers());
+        }
+
+        // Init
+        loadServers();
+    </script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: sametdemirel/login-app
+  pullPolicy: IfNotPresent
+  tag: "1.4.0"
+
+service:
+  type: NodePort
+  port: 5000
+  nodePort: 30080
+
+# Secrets - managed externally by Sealed Secrets
+# The install script creates a SealedSecret which the controller
+# decrypts into a regular Secret named below.
+# Override with: --set secrets.existingSecret=my-secret-name
+secrets:
+  existingSecret: "login-app-secret"
+
+# Database connection (non-sensitive values only)
+postgresql:
+  host: postgresql.postgres.svc.cluster.local
+  port: 5432
+  database: appdb
+  username: appuser
+
+# Cache connection (non-sensitive values only)
+redis:
+  host: redis-master.redis.svc.cluster.local
+  port: 6379
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
